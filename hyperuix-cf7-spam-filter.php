@@ -15,8 +15,8 @@ add_filter('wpcf7_validate', 'custom_contact_form_validation', 10, 2);
 
 function custom_contact_form_validation($result, $tags) {
     $form_id = $tags->id();
-    $email_field_name = 'your-email-field'; // Replace 'your-email-field' with the name of your email field
-    $phone_field_name = 'your-phone-field'; // Replace 'your-phone-field' with the name of your phone field
+    $email_field_name = 'wpcf7-email'; // Replace 'your-email-field' with the name of your email field
+    $phone_field_name = 'wpcf7-tel'; // Replace 'your-phone-field' with the name of your phone field
     $ip_limit_field_name = 'ip-limit-field'; // Replace 'ip-limit-field' with the name of the hidden field for storing IP addresses
     $ip_limit_timeframe = 3600; // Timeframe in seconds (3600 seconds = 1 hour)
     $max_entries_per_ip = 3;
@@ -61,6 +61,11 @@ function custom_contact_form_validation($result, $tags) {
     // Check if the number of entries from the current IP exceeds the limit
     if (count($stored_ips) > $max_entries_per_ip) {
         $result->invalidate($tags, 'You have exceeded the maximum number of submissions within the specified timeframe.');
+    }
+
+    // If the submission is flagged as spam, prevent admin notification email from being sent
+    if ($result->is_spam()) {
+        add_filter('wpcf7_skip_mail', '__return_true');
     }
 
     // You can add more checks here as needed
