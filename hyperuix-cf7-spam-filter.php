@@ -10,82 +10,70 @@
  * License: GPL3+
 */
 
-class NB_CPF_Plugin{
-	
-	public function __construct(){
-		add_action( 'plugins_loaded', array( $this, 'nb_load_plugin_textdomain' ) );
-		if(class_exists('WPCF7')){
-			
-			$this->nb_plugin_constants();
-			require_once NB_CPF_PATH . 'includes/autoload.php';
-			add_action( 'admin_notices', array( $this, 'nb_affiliate_admin_notice' ) );
-			add_action( 'admin_init', array( $this,  'nb_affiliate_notice_dismissed') );
-		} else {
-			add_action( 'admin_notices', array( $this, 'nb_admin_error_notice' ) );
-		}
-		
-	}
-	
-	public function nb_load_plugin_textdomain() {
-		load_plugin_textdomain( 'nb-cpf', false, basename( dirname( __FILE__ ) ) . '/languages/' );
-	}
-	
-	/*
-		register admin notice if contact form 7 is not active.
-	*/
-	public function nb_admin_error_notice(){
-		$message = sprintf( esc_html__( 'The %1$sCountry & Phone Field Contact Form 7%2$s plugin requires %1$sContact form 7%2$s plugin active to run properly. Please install %1$scontact form 7%2$s and activate', 'nb-cpf' ),'<strong>', '</strong>');
+// Add custom validation to Contact Form 7
+add_filter('wpcf7_validate', 'custom_contact_form_validation', 10, 2);
 
-		printf( '<div class="notice notice-error"><p>%1$s</p></div>', wp_kses_post( $message ) );
-	}
-	
-	/*
-		set plugin constants
-	*/
-	public function nb_plugin_constants(){
-		
-		if ( ! defined( 'NB_CPF_PATH' ) ) {
-			define( 'NB_CPF_PATH', plugin_dir_path( __FILE__ ) );
-		}
-		if ( ! defined( 'NB_CPF_URL' ) ) {
-			define( 'NB_CPF_URL', plugin_dir_url( __FILE__ ) );
-		}
-		
-	}
+function custom_contact_form_validation($result, $tags) {
+    $form_id = $tags->id();
+    $email_field_name = 'your-email-field'; // Replace 'your-email-field' with the name of your email field
+    $phone_field_name = 'your-phone-field'; // Replace 'your-phone-field' with the name of your phone field
+    $ip_limit_field_name = 'ip-limit-field'; // Replace 'ip-limit-field' with the name of the hidden field for storing IP addresses
+    $ip_limit_timeframe = 3600; // Timeframe in seconds (3600 seconds = 1 hour)
+    $max_entries_per_ip = 3;
 
-	//Display admin notices 
-	public function nb_affiliate_admin_notice() {
-		//get the current screen
-		$screen = get_current_screen();
-		$user_id = get_current_user_id();
-    
-		
-		//return if not plugin settings page 
-		//To get the exact your screen ID just do var_dump($screen)
-		if ( $screen->id === 'contact_page_cpf-settings' && !get_user_meta( $user_id, 'nb_affiliate_notice_dismissed' )){
-		?>
-		<div class="notice notice-success" style="position:relative;">
-			<h2><?php _e('Get your website on the first page of Google', 'nb-cpf') ?></h2>
-			<div class="text" style="clear:both; display:flex; flex-direction: row; justify-content: space-around;">
-				<div class="img-box" style=" background-color:#ff994b; padding:10px;"><a href="<?php echo esc_url('https://seobuddy.com/seo-checklist/narinderbisht') ?>" style="text-decoration:none;" target="_blank"><img src="<?php echo NB_CPF_URL ?>assets/img/checklist-by-seobuddy.svg" alt="seobuddy"/></a></div>
-				<div class="text-2" style="font-size:20px; font-weight:bold;"><a href="<?php echo esc_url('https://seobuddy.com/seo-checklist/narinderbisht') ?>" style="text-decoration:none;" target="_blank">Special for <span style="color:#ff994b">Narinderbisht</span> WP Plug-In Users
-				<p class="text-1">Use Coupon "<span style="color:#ff994b">NARINDERBISHT</span>" and <span style="color:#ff994b">get 25% off</span> when you purchase today</p></a></div>
-			</div>
-			
-			<a class="notice-dismiss" href="?page=cpf-settings&nb-affiliate-dismissed"></a>
-		</div>
-	<?php
-		} else{
-			return;
-		}
-	}
+    // Perform email format check
+    $email = isset($_POST[$email_field_name]) ? sanitize_email($_POST[$email_field_name]) : '';
+    if (!empty($email)) {
+        if (!is_email($email)) {
+            $result->invalidate($tags, 'Please enter a valid email address.');
+        }
+    }
 
-	public function nb_affiliate_notice_dismissed() {
-		$user_id = get_current_user_id();
-		if ( isset( $_GET['nb-affiliate-dismissed'] ) )
-			add_user_meta( $user_id, 'nb_affiliate_notice_dismissed', 'true', true );
-	}
+    // Perform phone number format check
+    $phone_number = isset($_POST[$phone_field_name]) ? sanitize_text_field($_POST[$phone_field_name]) : '';
+    if (!empty($phone_number)) {
+        if (!is_australian_phone_number($phone_number)) {
+            $result->invalidate($tags, 'Please enter a valid Australian phone number.');
+        }
+    }
+
+    // Get the user's IP address
+    $user_ip = $_SERVER['REMOTE_ADDR'];
+
+    // Get the stored IP addresses from the hidden field
+    $stored_ips = isset($_POST[$ip_limit_field_name]) ? unserialize(base64_decode($_POST[$ip_limit_field_name])) : array();
+
+    // Remove IP addresses that are older than the specified timeframe
+    $current_time = time();
+    foreach ($stored_ips as $key => $ip_data) {
+        if ($current_time - $ip_data['time'] > $ip_limit_timeframe) {
+            unset($stored_ips[$key]);
+        }
+    }
+
+    // Add the current IP address to the stored IP addresses
+    $stored_ips[$user_ip] = array('time' => $current_time);
+
+    // Serialize and encode the stored IPs for storage in the hidden field
+    $encoded_ips = base64_encode(serialize($stored_ips));
+    $_POST[$ip_limit_field_name] = $encoded_ips;
+
+    // Check if the number of entries from the current IP exceeds the limit
+    if (count($stored_ips) > $max_entries_per_ip) {
+        $result->invalidate($tags, 'You have exceeded the maximum number of submissions within the specified timeframe.');
+    }
+
+    // You can add more checks here as needed
+
+    return $result;
 }
 
-// Instantiate the plugin class.
-$nb_cpf_plugin = new NB_CPF_Plugin();
+// Function to check if a phone number is in Australian format
+function is_australian_phone_number($phone_number) {
+    // Australian phone numbers typically start with '+61', '0', or '61'
+    // We'll check if it starts with one of these patterns
+    if (preg_match('/^\+?(61)?0?(4|3|7|8|2)\d{8}$/', $phone_number)) {
+        return true;
+    }
+    return false;
+}
