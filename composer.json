@@ -1,0 +1,17 @@
+{
+  "name": "hyperuix/cf7-spam-filter",
+  "description": "Reduces and removes spam from Contact Form 7.",
+  "homepage": "https://github.com/hyperuix/cf7-spam-filter",
+  "license": "GPL3",
+  "authors": [
+    {
+      "name": "HYPERUIX",
+      "email": "admin@hyperuix.com.au",
+      "homepage": "https://www.hyperuix.com.au/"
+    }
+  ],
+  "type": "wordpress-plugin",
+  "require": {
+    "php": ">=5.6"
+  }
+}
