@@ -1,6 +1,6 @@
 # WP CF7 Spam Filter
 
-Places spam filters into Wordpress to only allow Australian mobile and landline numbers (04, 02, 03, 07, 08)
+Places spam filters into Wordpress to only allow Australian mobile and landline numbers (04, 02, 03, 07, 08), check if the number of entries from the current IP exceeds the limit, adds a custom validation to Contact Form 7, 
 
 ## Installation into a Bedrock site
 
