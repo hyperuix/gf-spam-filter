@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Contact Form 7 Spam Filter
+ * Plugin Name: Gravity Forms Spam Filter
  * Plugin URI: https://www.hyperuix.com.au/
  * Description: Places spam filters into Wordpress to reduce spam, set AU phone numbers & address fields and states.
  * Author: HYPERUIX
@@ -10,75 +10,199 @@
  * License: GPL3+
 */
 
-// Add custom validation to Contact Form 7
-add_filter('wpcf7_validate', 'custom_contact_form_validation', 10, 2);
-
-function custom_contact_form_validation($result, $tags) {
-    $form_id = $tags->id();
-    $email_field_name = 'wpcf7-email'; // Replace 'your-email-field' with the name of your email field
-    $phone_field_name = 'wpcf7-tel'; // Replace 'your-phone-field' with the name of your phone field
-    $ip_limit_field_name = 'ip-limit-field'; // Replace 'ip-limit-field' with the name of the hidden field for storing IP addresses
-    $ip_limit_timeframe = 3600; // Timeframe in seconds (3600 seconds = 1 hour)
-    $max_entries_per_ip = 3;
-
-    // Perform email format check
-    $email = isset($_POST[$email_field_name]) ? sanitize_email($_POST[$email_field_name]) : '';
-    if (!empty($email)) {
-        if (!is_email($email)) {
-            $result->invalidate($tags, 'Please enter a valid email address.');
-        }
-    }
-
-    // Perform phone number format check
-    $phone_number = isset($_POST[$phone_field_name]) ? sanitize_text_field($_POST[$phone_field_name]) : '';
-    if (!empty($phone_number)) {
-        if (!is_australian_phone_number($phone_number)) {
-            $result->invalidate($tags, 'Please enter a valid Australian phone number.');
-        }
-    }
-
-    // Get the user's IP address
-    $user_ip = $_SERVER['REMOTE_ADDR'];
-
-    // Get the stored IP addresses from the hidden field
-    $stored_ips = isset($_POST[$ip_limit_field_name]) ? unserialize(base64_decode($_POST[$ip_limit_field_name])) : array();
-
-    // Remove IP addresses that are older than the specified timeframe
-    $current_time = time();
-    foreach ($stored_ips as $key => $ip_data) {
-        if ($current_time - $ip_data['time'] > $ip_limit_timeframe) {
-            unset($stored_ips[$key]);
-        }
-    }
-
-    // Add the current IP address to the stored IP addresses
-    $stored_ips[$user_ip] = array('time' => $current_time);
-
-    // Serialize and encode the stored IPs for storage in the hidden field
-    $encoded_ips = base64_encode(serialize($stored_ips));
-    $_POST[$ip_limit_field_name] = $encoded_ips;
-
-    // Check if the number of entries from the current IP exceeds the limit
-    if (count($stored_ips) > $max_entries_per_ip) {
-        $result->invalidate($tags, 'You have exceeded the maximum number of submissions within the specified timeframe.');
-    }
-
-    // If the submission is flagged as spam, prevent admin notification email from being sent
-    if ($result->is_spam()) {
-        add_filter('wpcf7_skip_mail', '__return_true');
-    }
-
-    // You can add more checks here as needed
-
-    return $result;
+// Gravity Forms - Phone REGEX AU Filter
+add_filter( 'gform_phone_formats', 'au_phone_format' );
+function au_phone_format( $phone_formats ) {
+    $phone_formats['au'] = array(
+        'label'       => 'Australia',
+        'mask'        => '99 9999 9999',
+        'regex'       => '/^\({0,1}((0|\+61)(2|4|3|7|8)){0,1}\){0,1}(\ |-){0,1}[0-9]{2}(\ |-){0,1}[0-9]{2}(\ |-){0,1}[0-9]{1}(\ |-){0,1}[0-9]{3}$/',
+        'instruction' => 'Australian phone numbers.',
+    );
+ 
+    return $phone_formats;
 }
 
-// Function to check if a phone number is in Australian format
-function is_australian_phone_number($phone_number) {
-    // Australian phone numbers typically start with '+61', '0', or '61'
-    // We'll check if it starts with one of these patterns
-    if (preg_match('/^\+?(61)?0?(4|3|7|8|2)\d{8}$/', $phone_number)) {
+// Gravity Forms Spam Filter - disallowing 555- numbers & numbers starting with "8"
+if (!empty($phone_filter)) {
+    if (
+        ( strlen($phone_filter) == 11 && substr($phone_filter, 0, 1) == '8' ) ||
+        strlen($phone_filter) <= 6 ||
+        substr($phone_filter, 0, 4 ) === '555-'
+    ) {
+        // Spam block code here
+    }
+}
+
+// Mark Entry as Spam
+add_filter( 'gform_entry_is_spam', 'filter_gform_entry_is_spam_urls', 11, 3 );
+function filter_gform_entry_is_spam_urls( $is_spam, $form, $entry ) {
+    if ( $is_spam ) {
+        return $is_spam;
+    }
+ 
+    $field_types_to_check = array(
+        'hidden',
+        'text',
+        'textarea',
+    );
+ 
+    foreach ( $form['fields'] as $field ) {
+        // Skipping fields which are administrative or the wrong type.
+        if ( $field->is_administrative() || ! in_array( $field->get_input_type(), $field_types_to_check ) ) {
+            continue;
+        }
+ 
+        // Skipping fields which don't have a value.
+        $value = $field->get_value_export( $entry );
+        if ( empty( $value ) ) {
+            continue;
+        }
+ 
+        // If value contains a URL mark submission as spam.
+        if ( preg_match( '~(https?|ftp):\/\/\S+~', $value ) ) {
+            return true;
+        }
+    }
+ 
+    return false;
+}
+
+//IP Rate Limit
+add_filter( 'gform_entry_is_spam', 'filter_gform_entry_is_spam_ip_rate_limit', 11, 3 );
+function filter_gform_entry_is_spam_ip_rate_limit( $is_spam, $form, $entry ) {
+    if ( $is_spam ) {
+        return $is_spam;
+    }
+ 
+    $ip_address = empty( $entry['ip'] ) ? GFFormsModel::get_ip() : $entry['ip'];
+ 
+    if ( ! filter_var( $ip_address, FILTER_VALIDATE_IP ) ) {
         return true;
     }
+ 
+    $key   = wp_hash( __FUNCTION__ . $ip_address );
+    $count = (int) get_transient( $key );
+ 
+    if ( $count >= 2 ) {
+        return true;
+    }
+ 
+    $count ++;
+    set_transient( $key, $count, HOUR_IN_SECONDS );
+ 
     return false;
+}
+
+//Mark a submission as spam if the first and last name inputs contain the same value
+add_filter( 'gform_entry_is_spam', 'filter_gform_entry_is_spam_name_values', 11, 3 );
+function filter_gform_entry_is_spam_name_values( $is_spam, $form, $entry ) {
+    if ( $is_spam ) {
+        return $is_spam;
+    }
+ 
+    foreach ( $form['fields'] as $field ) {
+        // Skipping fields which are administrative or the wrong type.
+        if ( $field->is_administrative() || $field->get_input_type() !== 'name' || $field->nameFormat === 'simple' ) {
+            continue;
+        }
+ 
+        $first_name = rgar( $entry, $field->id . '.3' );
+        $last_name  = rgar( $entry, $field->id . '.6' );
+ 
+        if ( ! empty( $first_name ) && ! empty( $last_name ) && $first_name === $last_name ) {
+            return true;
+        }
+    }
+ 
+    return false;
+}
+
+//Detect English Language API
+add_filter( 'gform_entry_is_spam', 'filter_gform_entry_is_spam_detectlanguage', 11, 3 );
+function filter_gform_entry_is_spam_detectlanguage( $is_spam, $form, $entry ) {
+    if ( $is_spam ) {
+        return $is_spam;
+    }
+ 
+    $field_types_to_check = array(
+        'text',
+        'textarea',
+    );
+ 
+    $text_to_check = array();
+ 
+    foreach ( $form['fields'] as $field ) {
+        // Skipping fields which are administrative or the wrong type.
+        if ( $field->is_administrative() || ! in_array( $field->get_input_type(), $field_types_to_check ) ) {
+            continue;
+        }
+ 
+        // Skipping fields which don't have a value.
+        $value = $field->get_value_export( $entry );
+        if ( empty( $value ) ) {
+            continue;
+        }
+ 
+        $text_to_check[] = $value;
+    }
+ 
+    if ( empty( $text_to_check ) ) {
+        return false;
+    }
+ 
+    $response = wp_remote_post( 'https://ws.detectlanguage.com/0.2/detect', array(
+        'headers' => array(
+            'Authorization' => '99e02d95abbdec8143661410e20bf7e4',
+            'Content-Type'  => 'application/json',
+        ),
+        'body'    => json_encode( array( 'q' => $text_to_check ) ),
+    ) );
+ 
+    if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+        GFCommon::log_debug( __METHOD__ . '(): $response => ' . print_r( $response, true ) );
+ 
+        return false;
+    }
+ 
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    GFCommon::log_debug( __METHOD__ . '(): $body => ' . print_r( $body, true ) );
+ 
+    if ( empty( $body['data'] ) || empty( $body['data']['detections'] ) || ! is_array( $body['data']['detections'] ) ) {
+        return false;
+    }
+ 
+    foreach ( $body['data']['detections'] as $detections ) {
+        foreach ( $detections as $detection ) {
+            // Not spam if language is English.
+            if ( rgar( $detection, 'language' ) === 'en' && rgar( $detection, 'isReliable' ) ) {
+                return false;
+            }
+        }
+    }
+ 
+    return true;
+}
+
+// Add Australian address filter
+add_filter( 'gform_address_types', 'australian_address_type' );
+function australian_address_type( $address_types ) {
+    $address_types['australia'] = array(
+        'label'       => 'Australian',
+        'country'     => 'Australia',
+        'zip_label'   => 'Postcode',
+        'state_label' => 'State',
+        'states'      => array(
+            'ACT' => 'Australian Capital Territory',
+            'NT'  => 'Northern Territory',
+            'NSW' => 'New South Wales',
+            'QLD' => 'Queensland',
+            'SA'  => 'South Australia',
+            'TAS' => 'Tasmania',
+            'VIC' => 'Victoria',
+            'WA'  => 'Western Australia',
+        )
+    );
+ 
+    return $address_types;
 }
