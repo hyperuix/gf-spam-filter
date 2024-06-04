@@ -1,7 +1,7 @@
 {
-  "name": "hyperuix/cf7-spam-filter",
-  "description": "Reduces and removes spam from Contact Form 7.",
-  "homepage": "https://github.com/hyperuix/cf7-spam-filter",
+  "name": "hyperuix/gf-spam-filter",
+  "description": "Reduces and removes spam from Gravity Forms.",
+  "homepage": "https://github.com/hyperuix/gf-spam-filter",
   "license": "GPL3",
   "authors": [
     {

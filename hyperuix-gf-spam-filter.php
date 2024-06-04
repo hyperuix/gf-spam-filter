@@ -2,11 +2,11 @@
 /**
  * Plugin Name: Gravity Forms Spam Filter
  * Plugin URI: https://www.hyperuix.com.au/
- * Description: Places spam filters into Wordpress to reduce spam, set AU phone numbers & address fields and states.
+ * Description: Places spam filters into Wordpress to only allow Australian mobile and landline numbers (04, 02, 03, 07, 08)
  * Author: HYPERUIX
  * Author URI: https://www.hyperuix.com.au/
  * Version: 1.0
- * Text Domain: cf7-spam-filter
+ * Text Domain: gf-spam-filter
  * License: GPL3+
 */
 
