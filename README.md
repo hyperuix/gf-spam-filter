@@ -1,0 +1,1 @@
+# wp-gf-spam-filter
